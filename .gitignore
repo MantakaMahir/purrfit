@@ -1,0 +1,102 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+/android/build/
+/android/local.properties
+/android/key.properties
+/android/*.jks
+/android/*.keystore
+/.purrfit-release.env
+/\.env
+/\.env.*
+!/\.env.example
+/ios/Runner/GoogleService-Info.plist
+/ios/Runner.xcodeproj/xcuserdata/
+
+# App-store artwork and media are not included in this source distribution.
+/assets/Assets/
+/assets/music/
+/assets/stitch/
+
+# Exclude local production handoffs; they may contain signing credentials.
+/AAB_SETUP_README.md
+/PRODUCTION_ANDROID_AAB.md
+/PURRFIT_PRODUCTION_AAB_HANDOFF.zip
+
+# The app is offline-first; the retired Supabase project is not part of this app.
+/supabase/
+/brutal_audit_revert_log.md
+/FULL_AUDIT_2026-08-28.md
+/FULL_CODE_AUDIT.md
+/implementation_plan.md
+/ISSUES.md
+/MARKET_ANALYSIS.md
+/MONETIZATION_STRATEGY.md
+/purrfit_everything.md
+/purrfit_final_prd.md
+/SUPABASE_ISSUE.md
+/test-supabase.ps1
+/3d_asset_requirements.md
+/body_avatar_asset_requirements.md
+/lightweight_avatar_asset_requirements.md
+/EXERCISE_VIDEO_SHOTLIST.md
+/IMPLEMENTATION.md
+/docs/superpowers/
+
+# Local-machine Flutter/Xcode output.
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/flutter_export_environment.sh
+/ios/Flutter/ephemeral/
+/ios/Flutter/.last_build_id
+/ios/Pods/
+/ios/Podfile.lock
+/ios/build/
+/ios/Runner.xcworkspace/xcuserdata/
+
+# Agent instructions and installed authoring tools are local-only.
+/AGENTS.md
+/CLAUDE.md
+/.agents/
+/skills-lock.json

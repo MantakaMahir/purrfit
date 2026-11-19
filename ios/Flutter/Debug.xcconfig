@@ -1,0 +1,4 @@
+#include "Generated.xcconfig"
+
+// Google's official sample app ID for local debug builds.
+ADMOB_APP_ID = ca-app-pub-3940256099942544~1458002511
