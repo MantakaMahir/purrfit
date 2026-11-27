@@ -4,7 +4,13 @@ import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart'
-    show LicenseEntryWithLineBreaks, LicenseRegistry, kIsWeb, visibleForTesting;
+    show
+        LicenseEntryWithLineBreaks,
+        LicenseRegistry,
+        TargetPlatform,
+        defaultTargetPlatform,
+        kIsWeb,
+        visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -24,6 +30,9 @@ import 'workout_engine.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
   try {
     final prefs = await SharedPreferences.getInstance();
     final savedTheme = prefs.get('darkMode');
@@ -77,7 +86,7 @@ class PurrfitApp extends StatelessWidget {
             ? Brightness.dark
             : Brightness.light;
         final theme = AppCupertinoTheme.theme(brightness);
-        return CupertinoTheme(
+        final content = CupertinoTheme(
           data: theme,
           // CupertinoApp's own DefaultTextStyle is fixed to the light theme.
           // Re-apply it here so bare Text widgets follow the active brightness.
@@ -90,6 +99,20 @@ class PurrfitApp extends StatelessWidget {
               child: child ?? const SizedBox(),
             ),
           ),
+        );
+        if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+          return content;
+        }
+        final barIconBrightness = brightness == Brightness.dark
+            ? Brightness.light
+            : Brightness.dark;
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle(
+            statusBarIconBrightness: barIconBrightness,
+            systemNavigationBarIconBrightness: barIconBrightness,
+            systemNavigationBarContrastEnforced: true,
+          ),
+          child: content,
         );
       },
     ),

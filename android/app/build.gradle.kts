@@ -96,7 +96,7 @@ android {
                 manifestPlaceholders["adMobAppId"] = configuredAdMobAppId
             }
             isMinifyEnabled = true
-            isShrinkResources = false
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -117,5 +117,6 @@ flutter {
 }
 
 dependencies {
+    implementation("androidx.core:core:1.17.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
