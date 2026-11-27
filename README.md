@@ -2,6 +2,8 @@
 
 Purrfit is an offline-first workout companion for beginners and people getting back into regular movement. It builds short home workouts around your goals, experience, equipment and movement restrictions. Your progress follows completed workouts and feedback, with no assigned days or streak penalties.
 
+[Official Android app on Google Play](https://play.google.com/store/apps/details?id=com.purrfit.purrfit) · [Website](https://mantakamahir.github.io/purrfit/) · [Purrfit on LinkedIn](https://www.linkedin.com/company/purrfit/)
+
 - Review safety and movement preferences before starting personalized workouts.
 - Pause and resume the same workout, including its movements, sets and rest timer.
 - Follow a checkpoint journey, review workout history and optionally log adult body measurements.
