@@ -18,15 +18,44 @@ fun secretProperty(name: String): String? =
         ?: keystoreProperties.getProperty(name)
         ?: System.getenv(name)
 
-fun dartDefines(): List<String> = (project.properties["dart-defines"] as String?)
+val dartDefines = (project.findProperty("dart-defines") as String?)
     ?.split(',')
     ?.mapNotNull { encoded: String ->
-        runCatching { String(Base64.getDecoder().decode(encoded)) }.getOrNull()
+        runCatching { String(Base64.getDecoder().decode(encoded), Charsets.UTF_8) }.getOrNull()
     }
-    ?: emptyList<String>()
+    .orEmpty()
 
-val configuredAdMobAppId = (project.findProperty("ADMOB_APP_ID") as String?)
-    ?.takeIf { it.isNotBlank() }
+val sampleAdMobAppId = "ca-app-pub-3940256099942544~3347511713"
+val configuredAdMobAppId = secretProperty("ADMOB_APP_ID")?.takeIf { it.isNotBlank() }
+val monetizationEnabled = "PURRFIT_ENABLE_MONETIZATION=true" in dartDefines
+val uploadSigningValues = listOf(
+    "PURRFIT_UPLOAD_STORE_FILE",
+    "PURRFIT_UPLOAD_STORE_PASSWORD",
+    "PURRFIT_UPLOAD_KEY_ALIAS",
+    "PURRFIT_UPLOAD_KEY_PASSWORD",
+).associateWith { secretProperty(it)?.takeIf(String::isNotBlank) }
+val uploadSigningConfigured = uploadSigningValues.values.any { it != null }
+val releaseRequested = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true)
+}
+
+if (releaseRequested && uploadSigningConfigured) {
+    val missing = uploadSigningValues.filterValues { it == null }.keys
+    require(missing.isEmpty()) { "Missing release signing values: ${missing.joinToString()}" }
+}
+if (releaseRequested && monetizationEnabled) {
+    require(uploadSigningConfigured) { "Monetized release builds require an upload key." }
+    require(configuredAdMobAppId?.matches(Regex("ca-app-pub-[0-9]{16}~[0-9]{10}")) == true &&
+        configuredAdMobAppId != sampleAdMobAppId) {
+        "Monetized release builds require a production ADMOB_APP_ID Gradle property."
+    }
+    val rewardedUnit = dartDefines.lastOrNull { it.startsWith("ADMOB_REWARDED_ID=") }
+        ?.substringAfter('=')
+    require(rewardedUnit?.matches(Regex("ca-app-pub-[0-9]{16}/[0-9]{10}")) == true &&
+        !rewardedUnit.startsWith("ca-app-pub-3940256099942544/")) {
+        "Monetized release builds require --dart-define=ADMOB_REWARDED_ID with a production ad unit ID."
+    }
+}
 
 android {
     namespace = "com.purrfit.purrfit"
@@ -46,58 +75,25 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-                // Google's documented sample application ID keeps local/debug builds
-                // bootable without ever serving production ads. Release tasks still
-                // fail closed below unless ADMOB_APP_ID is provided explicitly.
-                manifestPlaceholders["adMobAppId"] = configuredAdMobAppId
-                    ?: "ca-app-pub-3940256099942544~3347511713"
+        // The bundled SDK expects a valid ID even when ads are disabled.
+        manifestPlaceholders["adMobAppId"] = sampleAdMobAppId
     }
 
     signingConfigs {
-        create("releaseUpload") {
-            val storeFilePath = secretProperty("PURRFIT_UPLOAD_STORE_FILE")
-            storeFile = storeFilePath?.let { rootProject.file(it) }
-            storePassword = secretProperty("PURRFIT_UPLOAD_STORE_PASSWORD")
-            keyAlias = secretProperty("PURRFIT_UPLOAD_KEY_ALIAS")
-            keyPassword = secretProperty("PURRFIT_UPLOAD_KEY_PASSWORD")
+        if (uploadSigningConfigured && uploadSigningValues.values.all { it != null }) {
+            create("releaseUpload") {
+                storeFile = rootProject.file(uploadSigningValues.getValue("PURRFIT_UPLOAD_STORE_FILE")!!)
+                storePassword = uploadSigningValues.getValue("PURRFIT_UPLOAD_STORE_PASSWORD")
+                keyAlias = uploadSigningValues.getValue("PURRFIT_UPLOAD_KEY_ALIAS")
+                keyPassword = uploadSigningValues.getValue("PURRFIT_UPLOAD_KEY_PASSWORD")
+            }
         }
     }
 
     buildTypes {
         release {
-            val isReleaseTask = gradle.startParameter.taskNames.any {
-                it.contains("Release", ignoreCase = true)
-            }
-            if (isReleaseTask && configuredAdMobAppId == null) {
-                throw GradleException("Missing ADMOB_APP_ID. Pass -PADMOB_APP_ID=ca-app-pub-...~...")
-            }
-            if (isReleaseTask) {
-                val dartDefines = dartDefines()
-                val allowReleaseTestConfig = dartDefines.contains("ALLOW_RELEASE_TEST_CONFIG=true")
-                val requiredDefines = listOf(
-                    "ADMOB_BANNER_ID",
-                    "ADMOB_INTERSTITIAL_ID",
-                    "ADMOB_REWARDED_ID",
-                )
-                val missingDefines = requiredDefines.filter { key ->
-                    dartDefines.none { define: String ->
-                        define.startsWith("$key=") && define.substringAfter('=').isNotBlank()
-                    }
-                }
-                if (missingDefines.isNotEmpty()) {
-                    throw GradleException("Missing release dart-defines: ${missingDefines.joinToString()}")
-                }
-                if (!allowReleaseTestConfig) {
-                    val missingSigning = listOf(
-                        "PURRFIT_UPLOAD_STORE_FILE",
-                        "PURRFIT_UPLOAD_STORE_PASSWORD",
-                        "PURRFIT_UPLOAD_KEY_ALIAS",
-                        "PURRFIT_UPLOAD_KEY_PASSWORD",
-                    ).filter { secretProperty(it).isNullOrBlank() }
-                    if (missingSigning.isNotEmpty()) {
-                        throw GradleException("Missing release signing values: ${missingSigning.joinToString()}")
-                    }
-                }
+            if (monetizationEnabled && configuredAdMobAppId != null) {
+                manifestPlaceholders["adMobAppId"] = configuredAdMobAppId
             }
             isMinifyEnabled = true
             isShrinkResources = false
@@ -105,11 +101,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = if (dartDefines().contains("ALLOW_RELEASE_TEST_CONFIG=true")) {
-                signingConfigs.getByName("debug")
-            } else {
-                signingConfigs.getByName("releaseUpload")
-            }
+            signingConfig = signingConfigs.findByName("releaseUpload")
         }
     }
 }

@@ -4,12 +4,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, kIsWeb, TargetPlatform, visibleForTesting;
+    show LicenseEntryWithLineBreaks, LicenseRegistry, kIsWeb, visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'ads/ad_eligibility_service.dart';
+import 'ads/ad_config.dart';
 import 'ads/ads_service.dart';
 import 'ads/consent_service.dart';
 import 'app/theme/app_colors.dart';
@@ -24,11 +24,18 @@ import 'workout_engine.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  appIsDark.value = prefs.getBool('darkMode');
-  if (!kIsWeb && !debugDisableExternalServices) {
-    unawaited(Notifications.instance.init());
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final savedTheme = prefs.get('darkMode');
+    if (savedTheme is bool) appIsDark.value = savedTheme;
+  } on PlatformException {
+    // Keep the system theme. The journey handles storage errors separately.
   }
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks([
+      'Manrope',
+    ], await rootBundle.loadString('assets/fonts/OFL.txt'));
+  });
   runApp(const PurrfitApp());
 }
 
@@ -37,9 +44,9 @@ final appIsDark = ValueNotifier<bool?>(null);
 bool debugUsePlaintextLocalState = false;
 @visibleForTesting
 bool debugDisableExternalServices = false;
-const _privacyUrl = 'https://mantakamahir.github.io/purrfit/privacy.html';
-const _termsUrl = 'https://mantakamahir.github.io/purrfit/terms.html';
-const _supportUrl = 'https://mantakamahir.github.io/purrfit/support.html';
+const _privacyUrl = String.fromEnvironment('PURRFIT_PRIVACY_URL');
+const _termsUrl = String.fromEnvironment('PURRFIT_TERMS_URL');
+const _supportUrl = String.fromEnvironment('PURRFIT_SUPPORT_URL');
 String _newId() {
   final random = math.Random.secure();
   return '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-'
@@ -151,6 +158,7 @@ Future<bool> _confirm(
   String title,
   String message, {
   String action = 'Continue',
+  bool destructive = false,
 }) async =>
     await showCupertinoDialog<bool>(
       context: context,
@@ -163,6 +171,7 @@ Future<bool> _confirm(
             child: const Text('Cancel'),
           ),
           CupertinoDialogAction(
+            isDestructiveAction: destructive,
             onPressed: () => Navigator.pop(dialog, true),
             child: Text(action),
           ),
@@ -342,6 +351,18 @@ class _PurrfitShellState extends State<PurrfitShell>
   AdsService? _ads;
   JourneyProgress get _journey => _base;
   bool get _safe => _profile.safetyReviewed && !_profile.blockedByRedFlag;
+  bool get _savedWorkoutNeedsReview {
+    final active = _active;
+    return active != null &&
+        !active.awaitingFeedback &&
+        active.workout.exercises
+            .skip(active.current)
+            .any((exercise) => !exerciseFitsProfile(exercise, _profile));
+  }
+
+  bool get _monetized =>
+      !debugDisableExternalServices && !widget.demoMode && AdConfig.enabled;
+  bool get _extraContentUnlocked => !_monetized || _removeAds;
 
   @override
   void initState() {
@@ -351,7 +372,7 @@ class _PurrfitShellState extends State<PurrfitShell>
     _autosave = Timer.periodic(const Duration(seconds: 15), (_) {
       if (_ready && _active != null) unawaited(_save());
     });
-    if (!debugDisableExternalServices && !widget.demoMode) {
+    if (_monetized) {
       unawaited(_initServices());
     }
   }
@@ -360,31 +381,21 @@ class _PurrfitShellState extends State<PurrfitShell>
     final purchases = AdRemovalService();
     _purchases = purchases;
     purchases.addListener(_serviceChanged);
-    if (purchases.available) {
-      await purchases.initialize();
-      if (!mounted) return;
-      _removeAds = purchases.hasAdFreeAccess;
-    }
-    if (kIsWeb ||
-        (defaultTargetPlatform != TargetPlatform.android &&
-            defaultTargetPlatform != TargetPlatform.iOS)) {
-      if (mounted) setState(() {});
-      return;
-    }
+    await purchases.initialize();
+    if (!mounted) return;
+    unawaited(purchases.refresh());
     final consent = ConsentService();
     _consent = consent;
-    final ads = AdsService(
-      consent: consent,
-      eligibility: AdEligibilityService(await SharedPreferences.getInstance()),
-    );
+    consent.addListener(_serviceChanged);
+    final ads = AdsService(consent: consent, adFree: _removeAds);
     _ads = ads;
-    await ads.initialize();
-    ads.setAdFree(_removeAds);
-    if (mounted) setState(() {});
+    ads.initialize();
+    if (!_removeAds) consent.initialize();
   }
 
   void _serviceChanged() {
     final adFree = _purchases?.hasAdFreeAccess ?? false;
+    if (!adFree) _consent?.initialize();
     _ads?.setAdFree(adFree);
     if (mounted) setState(() => _removeAds = adFree);
   }
@@ -515,6 +526,7 @@ class _PurrfitShellState extends State<PurrfitShell>
     if (!_ready) return;
     if (state == AppLifecycleState.resumed) {
       if (_safe &&
+          !_savedWorkoutNeedsReview &&
           _playerVisible &&
           _active != null &&
           !_active!.awaitingFeedback) {
@@ -567,7 +579,7 @@ class _PurrfitShellState extends State<PurrfitShell>
               });
               throw StateError('Preferences were not saved');
             }
-            if (!_safe) {
+            if (!_safe || _savedWorkoutNeedsReview) {
               _timer.pause(DateTime.now());
               _playerVisible = false;
             }
@@ -591,12 +603,16 @@ class _PurrfitShellState extends State<PurrfitShell>
       );
       return;
     }
-    if (_active != null) {
+    final active = _active;
+    if (active != null) {
       setState(() {
         _tabs.index = 1;
-        _playerVisible = true;
+        _playerVisible = !_savedWorkoutNeedsReview;
       });
-      if (!_active!.awaitingFeedback) _timer.resume(DateTime.now());
+      if (!_playerVisible) _timer.pause(DateTime.now());
+      if (_playerVisible && !active.awaitingFeedback) {
+        _timer.resume(DateTime.now());
+      }
       return;
     }
     setState(() => _busy = true);
@@ -686,7 +702,9 @@ class _PurrfitShellState extends State<PurrfitShell>
       'Your completed movements will be recorded. You can also pause and resume the exact workout later.',
       action: 'Finish attempt',
     );
-    if (!stop || !mounted || epoch != _loadEpoch) return;
+    if (!stop || !mounted || epoch != _loadEpoch || _busy || _active == null) {
+      return;
+    }
     _timer.pause(DateTime.now());
     setState(() {
       _busy = true;
@@ -699,6 +717,34 @@ class _PurrfitShellState extends State<PurrfitShell>
       if (!saved) _active!.awaitingFeedback = false;
     });
     if (!saved) _timer.resume(DateTime.now());
+  }
+
+  Future<void> _discardIncompatibleWorkout() async {
+    final active = _active;
+    if (active == null || _busy || !_savedWorkoutNeedsReview) return;
+    final epoch = _loadEpoch;
+    setState(() => _busy = true);
+    try {
+      final discard = await _confirm(
+        context,
+        'Discard this saved workout?',
+        'The unfinished attempt will be removed. Earned checkpoints and history stay saved.',
+        action: 'Discard workout',
+        destructive: true,
+      );
+      if (!discard || !mounted || epoch != _loadEpoch) return;
+      _timer.pause(DateTime.now());
+      _active = null;
+      final saved = await _save();
+      if (!mounted || epoch != _loadEpoch) return;
+      if (saved) {
+        _timer.reset();
+      } else {
+        _active = active;
+      }
+    } finally {
+      if (mounted && epoch == _loadEpoch) setState(() => _busy = false);
+    }
   }
 
   Future<void> _finish(String feedback) async {
@@ -781,6 +827,7 @@ class _PurrfitShellState extends State<PurrfitShell>
     _autosave?.cancel();
     _tabs.dispose();
     _ads?.dispose();
+    _consent?.removeListener(_serviceChanged);
     _consent?.dispose();
     _purchases?.removeListener(_serviceChanged);
     _purchases?.dispose();
@@ -903,7 +950,7 @@ class _PurrfitShellState extends State<PurrfitShell>
                 if (!mounted) return;
                 if (!saved) setState(() => _history.add(entry));
               },
-              isAdFree: _removeAds || debugDisableExternalServices,
+              isAdFree: _extraContentUnlocked,
               onRemoveAds: _openRemoveAds,
               onReward: _watchAd,
             ),
@@ -916,7 +963,8 @@ class _PurrfitShellState extends State<PurrfitShell>
 
   Widget _workoutPage() {
     final active = _active;
-    if (active != null && _playerVisible && _safe) {
+    final needsReview = _savedWorkoutNeedsReview;
+    if (active != null && _playerVisible && _safe && !needsReview) {
       if (active.awaitingFeedback) {
         return WorkoutCompleteScreen(
           qualified: active.qualified,
@@ -961,11 +1009,23 @@ class _PurrfitShellState extends State<PurrfitShell>
       children: [
         if (!_safe) ...[
           const _BuddyNote(
-            'Personalized workouts are paused until safety is reviewed and no restrictions are flagged.',
+            'Personalized workouts are paused until you complete the safety review and clear any red flags.',
           ),
           AppPrimaryButton(
             label: 'Review workout preferences',
             onPressed: _editPreferences,
+          ),
+        ] else if (needsReview) ...[
+          const _BuddyNote(
+            'Your saved workout includes movements that no longer fit your equipment, floor, or impact settings.',
+          ),
+          AppPrimaryButton(
+            label: 'Review workout preferences',
+            onPressed: _busy ? null : _editPreferences,
+          ),
+          CupertinoButton(
+            onPressed: _busy ? null : _discardIncompatibleWorkout,
+            child: const Text('Discard saved workout'),
           ),
         ] else if (preview == null) ...[
           const _BuddyNote(
@@ -1076,7 +1136,7 @@ class _PurrfitShellState extends State<PurrfitShell>
 
   /// Ad-free access also opens optional content, since the ad was the only key.
   Future<RewardedResult> _watchAd() async {
-    if (_removeAds) return RewardedResult.earned;
+    if (_extraContentUnlocked) return RewardedResult.earned;
     return await _ads?.showRewarded() ?? RewardedResult.notReady;
   }
 
@@ -1085,7 +1145,7 @@ class _PurrfitShellState extends State<PurrfitShell>
       await _start();
       return;
     }
-    if (!_removeAds) {
+    if (!_extraContentUnlocked) {
       if (!await _confirm(
         context,
         'Unlock optional workout?',
@@ -1094,7 +1154,19 @@ class _PurrfitShellState extends State<PurrfitShell>
       )) {
         return;
       }
-      if (await _watchAd() != RewardedResult.earned || !mounted) return;
+      if (!mounted) return;
+      final result = await _watchAd();
+      if (!mounted) return;
+      if (result != RewardedResult.earned) {
+        await showBrandedInfoSheet(
+          context,
+          title: 'Workout not unlocked',
+          message: result == RewardedResult.dismissedWithoutReward
+              ? 'The ad was closed before the reward. You can try again.'
+              : 'No ad is ready. Please try again later.',
+        );
+        return;
+      }
     }
     await _start(
       optional: PlannedWorkout(
@@ -1152,12 +1224,7 @@ class _PurrfitShellState extends State<PurrfitShell>
   Future<void> _openRemoveAds() async {
     await Navigator.of(context, rootNavigator: true).push(
       CupertinoPageRoute<void>(
-        builder: (_) => RemoveAdsScreen(
-          purchases: _purchases,
-          onAdFreeChanged: (value) {
-            if (mounted) setState(() => _removeAds = value);
-          },
-        ),
+        builder: (_) => RemoveAdsScreen(purchases: _purchases),
       ),
     );
   }
@@ -1272,6 +1339,7 @@ class _PurrfitShellState extends State<PurrfitShell>
       'Delete local data?',
       'This permanently removes your workout and profile data from this device. Your app-store purchase is managed separately.',
       action: 'Delete',
+      destructive: true,
     )) {
       return;
     }
@@ -1366,44 +1434,64 @@ class _PurrfitShellState extends State<PurrfitShell>
           );
         },
       ),
-      _SettingsTile(
-        'Reminders',
-        _reminder
-            ? 'On · ${(_reminderMinutes ~/ 60).toString().padLeft(2, '0')}:${(_reminderMinutes % 60).toString().padLeft(2, '0')}'
-            : 'Off',
-        onTap: _reminderSettings,
-      ),
+      if (!kIsWeb)
+        _SettingsTile(
+          'Reminders',
+          _reminder
+              ? 'On · ${(_reminderMinutes ~/ 60).toString().padLeft(2, '0')}:${(_reminderMinutes % 60).toString().padLeft(2, '0')}'
+              : 'Off',
+          onTap: _reminderSettings,
+        ),
       if (_consent?.privacyOptionsRequired ?? false)
         _SettingsTile(
           'Privacy & ads',
           'Manage choices',
           onTap: () => _consent!.showPrivacyOptions(),
         ),
-      _SettingsTile(
-        'Remove ads · one-time purchase',
-        _removeAds
-            ? 'Paid · no ads'
-            : '${_purchases?.priceString ?? 'See store price'} one-time',
-        onTap: _openRemoveAds,
-      ),
+      if (_monetized)
+        _SettingsTile(
+          'Remove ads · one-time purchase',
+          _removeAds
+              ? 'Paid · no ads'
+              : _purchases?.priceString ?? 'See store price',
+          onTap: _openRemoveAds,
+        ),
       const AppGap(),
       const AppSectionHeader('About your journey'),
-      const _BuddyNote(
-        'Your journey stays on this device. Deleting the app removes it, while a one-time ad-removal purchase stays with your store account.',
+      _BuddyNote(
+        _monetized
+            ? 'Your journey is stored on this device. Your store account manages your ad-removal purchase separately.'
+            : 'Your journey is stored on this device. Use Delete local data to erase it.',
       ),
       for (final link in [
         ('Privacy policy', _privacyUrl),
         ('Terms', _termsUrl),
         ('Support', _supportUrl),
       ])
-        _SettingsTile(
-          link.$1,
-          'Open in browser',
-          onTap: () => launchUrl(
-            Uri.parse(link.$2),
-            mode: LaunchMode.externalApplication,
+        if (Uri.tryParse(link.$2) case final Uri url
+            when url.scheme == 'https' && url.host.isNotEmpty)
+          _SettingsTile(
+            link.$1,
+            'Open in browser',
+            onTap: () async {
+              var opened = false;
+              try {
+                opened = await launchUrl(
+                  url,
+                  mode: LaunchMode.externalApplication,
+                );
+              } on PlatformException {
+                // The browser may be unavailable on this device.
+              }
+              if (!opened && mounted) {
+                await showBrandedInfoSheet(
+                  context,
+                  title: 'Could not open ${link.$1.toLowerCase()}',
+                  message: 'Open ${url.host} in your browser and try again.',
+                );
+              }
+            },
           ),
-        ),
       _SettingsTile(
         'Delete local data',
         'Permanently delete your data',
@@ -2384,9 +2472,7 @@ class _ExerciseGlyph extends StatelessWidget {
   const _ExerciseGlyph(this.exercise);
   final PlannedExercise exercise;
   @override
-  Widget build(BuildContext context) => Semantics(
-    image: true,
-    label: '${exercise.name} demonstration',
+  Widget build(BuildContext context) => ExcludeSemantics(
     child: SizedBox(
       width: 180,
       height: 180,
@@ -2736,6 +2822,7 @@ class _ReportScreenState extends State<ReportScreen> {
                       'Delete history entry?',
                       'Your earned checkpoints and points stay saved.',
                       action: 'Delete',
+                      destructive: true,
                     )) {
                       widget.onDeleteHistory(entry.id);
                     }
@@ -2823,6 +2910,7 @@ class _ReportScreenState extends State<ReportScreen> {
               'Delete measurement?',
               'This removes the selected measurement.',
               action: 'Delete',
+              destructive: true,
             )) {
               widget.onDeleteMeasurement(measurement.id);
             }
@@ -3064,13 +3152,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 }
 
 class RemoveAdsScreen extends StatefulWidget {
-  const RemoveAdsScreen({
-    super.key,
-    required this.purchases,
-    required this.onAdFreeChanged,
-  });
+  const RemoveAdsScreen({super.key, required this.purchases});
   final AdRemovalService? purchases;
-  final ValueChanged<bool> onAdFreeChanged;
   @override
   State<RemoveAdsScreen> createState() => _RemoveAdsScreenState();
 }
@@ -3093,7 +3176,6 @@ class _RemoveAdsScreenState extends State<RemoveAdsScreen> {
 
   void _onServiceChanged() {
     if (!mounted) return;
-    widget.onAdFreeChanged(service?.hasAdFreeAccess ?? false);
     setState(() {});
   }
 
@@ -3101,14 +3183,6 @@ class _RemoveAdsScreenState extends State<RemoveAdsScreen> {
   void dispose() {
     service?.removeListener(_onServiceChanged);
     super.dispose();
-  }
-
-  Future<void> _purchase() async {
-    final purchased = await service?.purchase() ?? false;
-    if (!mounted) return;
-    if (purchased) {
-      widget.onAdFreeChanged(true);
-    }
   }
 
   @override
@@ -3169,7 +3243,9 @@ class _RemoveAdsScreenState extends State<RemoveAdsScreen> {
           AppPrimaryButton(
             label: 'Remove ads · $_price',
             loading: service!.loading,
-            onPressed: service!.loading ? null : _purchase,
+            onPressed: service!.loading || service!.pendingPurchase
+                ? null
+                : service!.purchase,
           )
         else
           _BuddyNote(
@@ -3182,7 +3258,7 @@ class _RemoveAdsScreenState extends State<RemoveAdsScreen> {
       ],
       if (service?.error != null) ...[const AppGap(), Text(service!.error!)],
       const AppGap(),
-      if (service != null && !_adFree && !service!.loading)
+      if (service != null && !service!.loading)
         AppSecondaryButton(
           label: 'Restore purchases',
           icon: CupertinoIcons.arrow_clockwise,

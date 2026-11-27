@@ -58,7 +58,7 @@ packages:
     source: hosted
     version: "1.19.1"
   crypto:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: crypto
       sha256: e3626ae6270383c9e3a549f34c9e4cd26c09ae6a9adaab2bf4737a00340efdc4
@@ -81,6 +81,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.15"
+  equatable:
+    dependency: transitive
+    description:
+      name: equatable
+      sha256: ea36e500cbf0ec18361deabca755434f73e42fe53c5130021c7e2d6b5ebe1702
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.0"
   fake_async:
     dependency: transitive
     description:
@@ -215,10 +223,10 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_timezone
-      sha256: "13b2109ad75651faced4831bf262e32559e44aa549426eab8a597610d385d934"
+      sha256: "7830bc64bef0b003468fc1f58fc3f3faf54817f8cd6e68fa818b306560410d68"
       url: "https://pub.dev"
     source: hosted
-    version: "4.1.1"
+    version: "5.1.1"
   flutter_web_plugins:
     dependency: transitive
     description: flutter
@@ -265,7 +273,7 @@ packages:
     source: hosted
     version: "3.3.1"
   in_app_purchase_android:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: in_app_purchase_android
       sha256: b76ab601573f8a848e72d015496257235066ba3479bef6300482239f417e0d72
@@ -273,7 +281,7 @@ packages:
     source: hosted
     version: "0.5.5"
   in_app_purchase_platform_interface:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: in_app_purchase_platform_interface
       sha256: "0b0076cac8ce4fa7048f01e76af8b123aeb6a7c4e0dea2a5206d6664454f3e36"
@@ -288,22 +296,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.4.17"
-  in_app_review:
-    dependency: "direct main"
-    description:
-      name: in_app_review
-      sha256: "364db0c160b37fe7fad9cdaa18f968473924b17368869010af902760421b6bf8"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.0.12"
-  in_app_review_platform_interface:
-    dependency: transitive
-    description:
-      name: in_app_review_platform_interface
-      sha256: fed2c755f2125caa9ae10495a3c163aa7fab5af3585a9c62ef4a6920c5b45f10
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.0.5"
   jni:
     dependency: transitive
     description:
@@ -791,4 +783,4 @@ packages:
     version: "3.1.4"
 sdks:
   dart: ">=3.12.2 <4.0.0"
-  flutter: ">=3.44.0"
+  flutter: ">=3.44.4"

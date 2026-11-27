@@ -16,6 +16,8 @@
 	<string>6.0</string>
 	<key>GADApplicationIdentifier</key>
 	<string>$(ADMOB_APP_ID)</string>
+	<key>GADDelayAppMeasurementInit</key>
+	<true/>
 	<key>CFBundleName</key>
 	<string>purrfit</string>
 	<key>CFBundlePackageType</key>

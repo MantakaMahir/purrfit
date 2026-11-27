@@ -101,8 +101,13 @@ class SensitiveLocalStore {
     String? ownerUserId,
   }) async {
     final key = stateKey(ownerUserId);
-    final state = await _readSecure(preferences, key);
-    if (state == null) return {};
+    final secureState = usePlaintextForTesting
+        ? null
+        : await _secureStore.read(key);
+    final encoded = secureState ?? preferences.getString(key);
+    if (encoded == null) return {};
+    final state = decodeJsonObject(encoded);
+    if (state == null) throw const FormatException('Unreadable saved journey');
 
     final storedOwner = state['ownerUserId'];
     final ownerMatches = ownerUserId == null
@@ -117,7 +122,7 @@ class SensitiveLocalStore {
         cleanState['schemaVersion'] != schemaVersion ||
         cleanState['ownerUserId'] != ownerUserId ||
         state.containsKey('events');
-    if (needsMetadata) {
+    if (needsMetadata || (!usePlaintextForTesting && secureState == null)) {
       await write(cleanState, preferences, ownerUserId: ownerUserId);
     } else if (!usePlaintextForTesting) {
       await preferences.remove(key);
@@ -193,40 +198,6 @@ class SensitiveLocalStore {
       await _removeLegacyKeys(preferences);
     }
     return true;
-  }
-
-  Future<Map<String, Object?>?> _readSecure(
-    SharedPreferences preferences,
-    String key,
-  ) async {
-    if (usePlaintextForTesting) {
-      final raw = preferences.getString(key);
-      final decoded = decodeJsonObject(raw);
-      if (raw != null && decoded == null) {
-        throw const FormatException('Unreadable saved journey');
-      }
-      return decoded;
-    }
-    final raw = await _secureStore.read(key);
-    final decoded = decodeJsonObject(raw);
-    if (raw != null) {
-      if (decoded == null) {
-        throw const FormatException('Unreadable saved journey');
-      }
-      return decoded;
-    }
-
-    // Migrate only a plaintext copy of this exact new namespace.
-    final plaintext = preferences.getString(key);
-    final fallback = decodeJsonObject(plaintext);
-    if (plaintext != null && fallback == null) {
-      throw const FormatException('Unreadable saved journey');
-    }
-    if (fallback == null) return null;
-    final prefix = '$secureStateKey:';
-    final owner = key.startsWith(prefix) ? key.substring(prefix.length) : null;
-    await write(fallback, preferences, ownerUserId: owner);
-    return fallback;
   }
 
   Future<void> _removeLegacyKeys(SharedPreferences preferences) async {

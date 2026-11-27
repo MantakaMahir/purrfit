@@ -83,6 +83,28 @@ void main() {
   );
 
   test(
+    'an owner mismatch is rejected before a plaintext journey can migrate',
+    () async {
+      const key = 'purrfitJourneyState:user-a';
+      const raw = '{"ownerUserId":"user-b","schemaVersion":3,"points":42}';
+      SharedPreferences.setMockInitialValues({key: raw});
+      final preferences = await SharedPreferences.getInstance();
+      final secure = _MemorySecureStore();
+      final store = SensitiveLocalStore(secureStore: secure);
+
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await expectLater(
+          store.readAndMigrate(preferences, ownerUserId: 'user-a'),
+          throwsFormatException,
+        );
+      }
+
+      expect(secure.values, isEmpty);
+      expect(preferences.getString(key), raw);
+    },
+  );
+
+  test(
     'write and default clear preserve old namespace and flat preferences',
     () async {
       SharedPreferences.setMockInitialValues({

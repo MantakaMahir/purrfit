@@ -11,6 +11,7 @@ class Notifications {
 
   final _plugin = FlutterLocalNotificationsPlugin();
   var _ready = false;
+  Future<void>? _initialization;
 
   static const _dailyReminderId = 1001;
 
@@ -29,17 +30,21 @@ class Notifications {
     ),
   );
 
-  Future<void> init() async {
-    if (_ready || kIsWeb) return;
+  Future<void> init() {
+    if (_ready || kIsWeb) return Future.value();
+    return _initialization ??= _initialize();
+  }
+
+  Future<void> _initialize() async {
     try {
       tzdata.initializeTimeZones();
-      final name = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(name));
+      final timezone = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(timezone.identifier));
     } catch (e) {
       debugPrint('Notifications tz init failed: $e');
     }
     const settings = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      android: AndroidInitializationSettings('ic_notification'),
       iOS: DarwinInitializationSettings(
         requestAlertPermission: false,
         requestBadgePermission: false,
@@ -52,6 +57,8 @@ class Notifications {
       await cancelLegacyReminders();
     } catch (e) {
       debugPrint('Notifications init failed: $e');
+    } finally {
+      _initialization = null;
     }
   }
 
@@ -59,19 +66,24 @@ class Notifications {
   Future<bool> requestPermission() async {
     if (kIsWeb) return false;
     await init();
-    final ios = _plugin
-        .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin
-        >();
-    if (ios != null) {
-      return await ios.requestPermissions(alert: true, sound: true) ?? false;
+    if (!_ready) return false;
+    try {
+      final ios = _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      if (ios != null) {
+        return await ios.requestPermissions(alert: true, sound: true) ?? false;
+      }
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      return await android?.requestNotificationsPermission() ?? false;
+    } catch (error) {
+      debugPrint('Notification permission request failed: $error');
+      return false;
     }
-    final android = _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    final granted = await android?.requestNotificationsPermission();
-    return granted ?? true;
   }
 
   tz.TZDateTime _nextInstanceOf(int hour, int minute) {
@@ -85,7 +97,14 @@ class Notifications {
       minute,
     );
     if (!scheduled.isAfter(now)) {
-      scheduled = scheduled.add(const Duration(days: 1));
+      scheduled = tz.TZDateTime(
+        tz.local,
+        now.year,
+        now.month,
+        now.day + 1,
+        hour,
+        minute,
+      );
     }
     return scheduled;
   }
@@ -118,7 +137,12 @@ class Notifications {
   Future<void> cancelDailyReminder() async {
     if (kIsWeb) return;
     await init();
-    await _plugin.cancel(_dailyReminderId);
+    if (!_ready) return;
+    try {
+      await _plugin.cancel(_dailyReminderId);
+    } catch (error) {
+      debugPrint('Could not cancel daily reminder: $error');
+    }
   }
 
   /// Retires the obsolete streak notification left by earlier app versions.

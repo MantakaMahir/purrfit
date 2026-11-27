@@ -142,6 +142,26 @@ void main() {
     expect((await _saved())['draft']['primaryGoal'], 'strength');
   });
 
+  testWidgets('default builds expose reports without a purchase or ad', (
+    tester,
+  ) async {
+    _seed();
+    await tester.pumpWidget(const PurrfitApp());
+    await _pump(tester);
+
+    await tester.tap(find.text('Report'));
+    await _pump(tester);
+    expect(find.text('0 checkpoints completed'), findsOneWidget);
+    expect(find.text('Watch ad to view this report'), findsNothing);
+    await tester.tap(find.text('Body'));
+    await _pump(tester);
+    expect(find.textContaining('Adult BMI screening'), findsOneWidget);
+
+    await tester.tap(find.text('Profile'));
+    await _pump(tester);
+    expect(find.textContaining('Remove ads'), findsNothing);
+  });
+
   testWidgets('onboarding ignores double finish taps', (tester) async {
     final done = Completer<void>();
     var calls = 0;
@@ -462,6 +482,54 @@ void main() {
         ),
         isNot(contains('"eventId"')),
       );
+    },
+  );
+
+  testWidgets(
+    'a saved workout cannot resume if its remaining movements need the floor',
+    (tester) async {
+      final active = FrozenWorkout(
+        eventId: 'saved-floor-attempt',
+        workout: const PlannedWorkout(
+          seq: 1,
+          title: 'Saved floor workout',
+          estMinutes: 10,
+          exercises: [
+            PlannedExercise(
+              'Plank',
+              '15 sec',
+              'Hold on the floor.',
+              CupertinoIcons.person,
+            ),
+          ],
+        ),
+        startedAt: DateTime.now(),
+        energy: 'Medium',
+        checkpoint: 2,
+      );
+      _seed(
+        journey: const JourneyProgress(
+          journeyId: 'fresh-journey',
+          completedCheckpoints: 1,
+          points: 100,
+        ),
+        profile: _profile.copyWith(floorAllowed: false),
+        active: active,
+      );
+      await tester.pumpWidget(const PurrfitApp());
+      await _pump(tester);
+      await _tap(tester, 'Resume workout');
+      expect(find.byType(WorkoutScreen), findsNothing);
+      expect(find.text('Review workout preferences'), findsOneWidget);
+      expect((await _saved())['active']['eventId'], active.eventId);
+
+      await _tap(tester, 'Discard saved workout');
+      await tester.tap(find.text('Discard workout'));
+      await _pump(tester);
+      final saved = await _saved();
+      expect(saved['active'], isNull);
+      expect(_savedJourney(saved).completedCheckpoints, 1);
+      expect(_savedJourney(saved).points, 100);
     },
   );
 

@@ -1,27 +1,27 @@
-# Store setup and release checklist
+# Store distribution
 
-This file lists account-specific configuration that app contributors must supply themselves. Keep passwords, signing keys, financial details, production ad IDs, and private account information out of source control.
+The standard source build leaves ad and billing services inactive and unlocks all workouts and reports. The native SDKs are linked so the same project can support the integration when enabled. You can sign and distribute the default build without adding a storefront product.
 
-## Google Play
+## Signing and app identity
 
-- Create the Android app with the intended package name and complete Play Console identity, content, target-audience, privacy, and data-safety forms.
-- Create a non-consumable in-app product with ID `purrfit_ad_free`.
-- Create separate Android AdMob app and ad-unit IDs. Configure UMP consent and `app-ads.txt` as required for your region and monetization policy.
-- Set the production IDs through the Android Gradle property `ADMOB_APP_ID` and Dart defines `ADMOB_BANNER_ID`, `ADMOB_INTERSTITIAL_ID`, and `ADMOB_REWARDED_ID`.
-- Generate and protect your own upload key. Supply the signing values through local ignored `android/key.properties` or environment variables; see `README.md`.
-- Test purchase, pending, cancellation, restore, refund, ads, consent, reminders, installation, and update behavior using a Play testing track.
+- **Android:** Set your own `applicationId` in `android/app/build.gradle.kts`. Add these four local properties to the ignored `android/key.properties`, or supply the same names as environment variables. The key path is absolute or relative to `android/`. With all four values set, `flutter build appbundle --release` produces a signed bundle. With no values, release builds are unsigned.
 
-## Apple App Store (macOS and Xcode)
+  ```properties
+  PURRFIT_UPLOAD_STORE_FILE=
+  PURRFIT_UPLOAD_STORE_PASSWORD=
+  PURRFIT_UPLOAD_KEY_ALIAS=
+  PURRFIT_UPLOAD_KEY_PASSWORD=
+  ```
 
-- Set a unique bundle ID and configure signing, provisioning, and distribution in Xcode.
-- Create a matching non-consumable `purrfit_ad_free` item in App Store Connect, then test localized price, purchase, pending/cancel, restore, and refund using StoreKit or sandbox testers.
-- Create separate iOS AdMob app and ad-unit IDs; the Debug build uses Google's official test app ID. Set the production `ADMOB_APP_ID` in the Xcode Runner target's build settings and use the three ad-unit Dart defines listed above.
-- Configure UMP consent, store privacy disclosures, and any applicable ad tracking decisions.
-- Verify notification permission and local reminders on simulator and physical devices.
-- Replace the generated iOS placeholder app icon with artwork you have rights to distribute, then archive, sign, and validate in App Store Connect.
+- **iOS:** Set your own Runner bundle ID and development team in `ios/Runner.xcworkspace`. Configure signing for Keychain access. Build an archive with `flutter build ipa` on macOS after setting up signing.
+- For store listings, use your own icon, privacy policy, support contact, and disclosures. Supply HTTPS links with `--dart-define=PURRFIT_PRIVACY_URL=…`, `--dart-define=PURRFIT_TERMS_URL=…`, and `--dart-define=PURRFIT_SUPPORT_URL=…`. Profile shows only the links you supply.
 
-## General
+## Optional rewarded ads and purchase
 
-- Review current store policies for billing, advertising, privacy, and health/fitness claims before submission.
-- Core workouts and reports must remain usable without creating an account or connecting to a backend.
-- Avoid committing real store credentials, production ad IDs, signing files, or proprietary artwork and sounds.
+1. Create a non-consumable item with ID `purrfit_ad_free` in each storefront you use. The app reads the localized price from that storefront.
+2. Create an AdMob app and one rewarded ad unit for each platform. Configure UMP privacy messaging and the disclosures that apply to your build.
+3. On Android, set `ADMOB_APP_ID` in `android/key.properties`, as an environment variable, or as a Gradle property. On iOS, set `ADMOB_APP_ID` in the ignored `ios/Flutter/Local.xcconfig` or in the Runner target's build settings. The AdMob application ID contains `~`; a rewarded ad unit ID contains `/`.
+4. Enable the integration with `--dart-define=PURRFIT_ENABLE_MONETIZATION=true`. For a monetized release, configure release signing and pass `--dart-define=ADMOB_REWARDED_ID=…` with the matching platform's production rewarded unit. Debug builds use Google's test rewarded units. Replace the default sample app ID for any monetized release.
+5. Use a testing track or StoreKit sandbox to test the ad and purchase flow before distribution. See the [store test checklist](play_testing_checklist.md).
+
+The purchase cache provides offline access after a purchase or restore. There is no server-side receipt verification or refund reconciliation. Verify payment, pending approval, cancellation, restoration, and refund behavior with the target storefront before enabling paid distribution.

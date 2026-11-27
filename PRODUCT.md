@@ -21,4 +21,4 @@ Purrfit is an offline-first workout companion for beginners and people returning
 
 ## Monetization
 
-Optional rewarded ads unlock optional workouts and Overview/Body reports. The one-time `purrfit_ad_free` non-consumable purchase disables ads and unlocks those areas. The active store supplies the localized price; do not hard-code or assume a fixed currency amount.
+The default source build unlocks all workouts and reports. In builds with monetization enabled, rewarded ads unlock optional workouts and the Overview and Body reports. The one-time `purrfit_ad_free` non-consumable purchase removes those gates. The active store supplies the localized price.

@@ -49,9 +49,14 @@ app.*.map.json
 /android/*.jks
 /android/*.keystore
 /.purrfit-release.env
-/\.env
-/\.env.*
-!/\.env.example
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.p8
+*.mobileprovision
 /ios/Runner/GoogleService-Info.plist
 /ios/Runner.xcodeproj/xcuserdata/
 
@@ -87,6 +92,7 @@ app.*.map.json
 
 # Local-machine Flutter/Xcode output.
 /ios/Flutter/Generated.xcconfig
+/ios/Flutter/Local.xcconfig
 /ios/Flutter/flutter_export_environment.sh
 /ios/Flutter/ephemeral/
 /ios/Flutter/.last_build_id

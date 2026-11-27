@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_android/billing_client_wrappers.dart';
+import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:purrfit/purchases/ad_removal_service.dart';
@@ -12,6 +14,9 @@ class _FakePurchaseGateway implements PurchaseGateway {
       StreamController<List<PurchaseDetails>>.broadcast();
   int availabilityChecks = 0;
   int queries = 0;
+  final completed = <PurchaseDetails>[];
+  List<PurchaseDetails> restoreResults = [];
+  bool failRestore = false;
 
   @override
   Stream<List<PurchaseDetails>> get purchaseStream => purchases.stream;
@@ -48,11 +53,27 @@ class _FakePurchaseGateway implements PurchaseGateway {
       true;
 
   @override
-  Future<void> restorePurchases() async {}
+  Future<void> restorePurchases() async {
+    if (failRestore) throw StateError('Store offline');
+    purchases.add(restoreResults);
+  }
 
   @override
-  Future<void> completePurchase(PurchaseDetails purchase) async {}
+  Future<void> completePurchase(PurchaseDetails purchase) async {
+    completed.add(purchase);
+  }
 }
+
+PurchaseDetails _purchaseUpdate(PurchaseStatus status) => PurchaseDetails(
+  productID: AdRemovalService.productId,
+  verificationData: PurchaseVerificationData(
+    localVerificationData: 'store receipt',
+    serverVerificationData: 'store purchase token',
+    source: 'google_play',
+  ),
+  transactionDate: null,
+  status: status,
+)..pendingCompletePurchase = true;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -65,7 +86,7 @@ void main() {
   });
   tearDown(() {
     debugDefaultTargetPlatformOverride = null;
-    fakePlatform.purchases.close();
+    return fakePlatform.purchases.close();
   });
 
   test('price uses a localized store price instead of a guessed amount', () {
@@ -105,11 +126,85 @@ void main() {
     addTearDown(service.dispose);
 
     await service.initialize();
+    await service.refresh();
 
     expect(service.storeReady, isTrue);
     expect(service.priceString, '€5,49');
     expect(fakePlatform.availabilityChecks, 1);
     expect(fakePlatform.queries, 1);
+  });
+
+  test(
+    'approval grants access and pending purchases are never finished',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final service = AdRemovalService(billing: fakePlatform);
+      addTearDown(service.dispose);
+      await service.initialize();
+      await service.refresh();
+
+      final result = service.purchase();
+      fakePlatform.purchases.add([_purchaseUpdate(PurchaseStatus.pending)]);
+      expect(await result, isFalse);
+      expect(service.pendingPurchase, isTrue);
+      expect(service.hasAdFreeAccess, isFalse);
+      expect(fakePlatform.completed, isEmpty);
+      expect(await service.purchase(), isFalse);
+
+      final approved = _purchaseUpdate(PurchaseStatus.purchased);
+      fakePlatform.restoreResults = [approved];
+      await service.restore();
+      expect(service.pendingPurchase, isFalse);
+      expect(service.hasAdFreeAccess, isTrue);
+      expect(service.error, isNull);
+      expect(fakePlatform.completed, [approved]);
+      expect(
+        (await SharedPreferences.getInstance()).getBool('adFreeOwned'),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'Play restore cannot grant or finish a transaction still pending',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final service = AdRemovalService(billing: fakePlatform);
+      addTearDown(service.dispose);
+      await service.initialize();
+      fakePlatform.restoreResults = GooglePlayPurchaseDetails.fromPurchase(
+        PurchaseWrapper(
+          orderId: '',
+          packageName: 'com.purrfit.purrfit',
+          purchaseTime: 0,
+          purchaseToken: 'pending token',
+          signature: '',
+          products: [AdRemovalService.productId],
+          isAutoRenewing: false,
+          originalJson: '{}',
+          isAcknowledged: false,
+          purchaseState: PurchaseStateWrapper.pending,
+        ),
+      )..first.status = PurchaseStatus.restored;
+
+      await service.restore();
+      expect(service.pendingPurchase, isTrue);
+      expect(service.hasAdFreeAccess, isFalse);
+      expect(fakePlatform.completed, isEmpty);
+    },
+  );
+
+  test('restore distinguishes an empty result from a store failure', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final service = AdRemovalService(billing: fakePlatform);
+    addTearDown(service.dispose);
+    await service.initialize();
+
+    await service.restore();
+    expect(service.error, contains('No ad-free purchase'));
+    fakePlatform.failRestore = true;
+    await service.restore();
+    expect(service.error, contains('Could not restore purchases'));
   });
 
   test('billing is enabled for iOS', () {
